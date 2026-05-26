@@ -92,20 +92,6 @@ python run.py "What is RSI and how to use it in trading"
 python run.py https://example.com/lesson/rsi
 ```
 
----
-
-## 🖥️ Web UI Guide
-
-| Area | What it does |
-|---|---|
-| **Topic textarea** | One topic per line. One line → single carousel; multiple lines → batch |
-| **Processing mode** | *One by one* or *All at once* (only shown for batch) |
-| **Style Options** | Change the carousel style, accent color, and background image |
-| **Slide Options** | Set max slides (1–10) and toggle slide numbers |
-| **Previous Runs** | Browse and preview every generated carousel; click any slide to zoom |
-
----
-
 ## 🎨 Adding a New Style
 
 1. Create a new subfolder under `styles/`:
@@ -133,86 +119,3 @@ python run.py https://example.com/lesson/rsi
    | `__POST_DESCRIPTION__` | Slide body text from the planner |
    | `__POST_IMAGE_DESCRIPTION__` | Visual brief from the planner |
    | `#6DFF2F` | The user's chosen accent color |
-
-3. Your new style appears automatically in the **Style Options** dropdown.
-
-To set a style as the default, edit the top of `run.py`:
-```python
-ACTIVE_STYLE = "My New Style"
-```
-
----
-
-## 🛠️ Utility Scripts
-
-### `apply_background.py`
-
-Composite a background image behind every slide in a run folder:
-
-```bash
-python apply_background.py output/2026-05-24_14-58-54
-# or use a custom background:
-python apply_background.py output/2026-05-24_14-58-54 path/to/custom_bg.png
-```
-
-Output lands in `<run_folder>/composited/`.
-
-### `add_slide_numbers.py`
-
-Stamp slide-number labels onto composited images:
-
-```bash
-python add_slide_numbers.py output/2026-05-24_14-58-54
-# with a custom accent color:
-python add_slide_numbers.py output/2026-05-24_14-58-54 --color "#FF6B6B"
-```
-
-Files are overwritten in place inside `composited/`.
-
----
-
-## ⚙️ Configuration Reference
-
-| Setting | Where | Default | Notes |
-|---|---|---|---|
-| `ACTIVE_STYLE` | `run.py` | `"Educational Candlesticks"` | Default style when none is chosen in the UI |
-| `OPENAI_API_KEY` | `.env` | — | Required |
-| Image model | `run.py` `image_generation` | `gpt-image-1` | Size: 1024×1024, transparent background |
-| Planner / Drawing model | `run.py` | `gpt-5.5` | Reasoning effort: `"low"` |
-| Flask port | `app.py` | `5000` | Change `app.run(port=5000)` |
-
----
-
-## 📄 Output Format
-
-Each run produces a timestamped folder under `output/`:
-
-```
-output/2026-05-24_14-58-54/
-├── slide_01.png          # raw transparent PNG from the image model
-├── slide_02.png
-├── …
-├── carousel.json         # structured planner output (titles, descriptions, image prompts)
-└── composited/
-    ├── slide_01.png      # background composited + slide numbers stamped
-    └── …
-```
-
-`carousel.json` schema:
-```json
-{
-  "posts": [
-    {
-      "title": "Slide headline",
-      "description": "Body copy shown on the slide",
-      "image_description": "Visual brief sent to the image model"
-    }
-  ]
-}
-```
-
----
-
-## 📝 License
-
-MIT
