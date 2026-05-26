@@ -518,19 +518,59 @@ HTML = r"""<!DOCTYPE html>
 
         <!-- Background image -->
         <div>
-          <label>Background image</label>
-          <div class="bg-row">
-            <img class="bg-thumb" id="bg-thumb" src="/background-image/Background.png" alt="Background"/>
-            <div class="bg-info">
-              <div class="bg-name" id="bg-name">Background.png (default)</div>
-              <div class="bg-actions">
-                <button type="button" class="btn-sm" id="bg-upload-btn">↑ Upload new</button>
-                <button type="button" class="btn-sm" id="bg-reset-btn">↩ Use default</button>
+          <div class="toggle-row" style="margin-bottom:.6rem">
+            <label style="margin:0">Background image</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="use-bg-toggle" checked/>
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div id="bg-picker-wrap">
+            <div class="bg-row">
+              <img class="bg-thumb" id="bg-thumb" src="/background-image/Background.png" alt="Background"/>
+              <div class="bg-info">
+                <div class="bg-name" id="bg-name">Background.png (default)</div>
+                <div class="bg-actions">
+                  <button type="button" class="btn-sm" id="bg-upload-btn">↑ Upload new</button>
+                  <button type="button" class="btn-sm" id="bg-reset-btn">↩ Use default</button>
+                </div>
               </div>
             </div>
           </div>
           <input type="file" id="bg-upload-input" accept=".png,.jpg,.jpeg,.webp"/>
         </div>
+
+        <!-- Image quality -->
+        <div>
+          <label>Image quality</label>
+          <select class="style-select" id="quality-select">
+            <option value="auto">Auto</option>
+            <option value="low">Low &mdash; fastest</option>
+            <option value="medium">Medium</option>
+            <option value="high">High &mdash; best quality</option>
+          </select>
+        </div>
+
+        <!-- Slide dimensions -->
+        <div>
+          <label>Slide dimensions</label>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" id="size-square"    data-size="1024x1024">&#9632; Square</button>
+            <button type="button" class="mode-btn"        id="size-portrait"  data-size="1024x1536">&#9650; Portrait</button>
+            <button type="button" class="mode-btn"        id="size-landscape" data-size="1536x1024">&#9654; Landscape</button>
+          </div>
+        </div>
+
+        <!-- Reasoning effort -->
+        <div>
+          <label>Reasoning effort</label>
+          <div class="mode-toggle">
+            <button type="button" class="mode-btn active" id="effort-low">    &#9889; Low</button>
+            <button type="button" class="mode-btn"        id="effort-medium"> &#9898; Medium</button>
+            <button type="button" class="mode-btn"        id="effort-high">   &#128269; High</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -610,9 +650,13 @@ let lbIndex  = 0;
 
 // Style options state
 const DEFAULT_ACCENT = '#6DFF2F';
-let currentAccentColor = DEFAULT_ACCENT;
-let currentBgFile = null;
-let currentStyle = null;   // null = server default
+let currentAccentColor    = DEFAULT_ACCENT;
+let currentBgFile         = null;
+let currentUseBackground  = localStorage.getItem('carousel_use_background') !== 'false';
+let currentStyle          = null;   // null = server default
+let currentImageQuality   = localStorage.getItem('carousel_image_quality')    || 'auto';
+let currentImageSize      = localStorage.getItem('carousel_image_size')       || '1024x1024';
+let currentReasoningEffort= localStorage.getItem('carousel_reasoning_effort') || 'low';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const form          = document.getElementById('gen-form');
@@ -648,6 +692,21 @@ function loadStyleOptions() {
   if (savedBg)    applyBgFile(savedBg, false);
   // max_slides is initialised inline at declaration; just sync the DOM
   applyMaxSlides(currentMaxSlides, false);
+  // Restore use-background toggle
+  const useBgToggle = document.getElementById('use-bg-toggle');
+  useBgToggle.checked = currentUseBackground;
+  document.getElementById('bg-picker-wrap').style.display = currentUseBackground ? '' : 'none';
+  // Restore image quality
+  document.getElementById('quality-select').value = currentImageQuality;
+  // Restore slide dimensions
+  document.querySelectorAll('#size-square, #size-portrait, #size-landscape').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.size === currentImageSize);
+  });
+  // Restore reasoning effort
+  const effortMap = { low: 'effort-low', medium: 'effort-medium', high: 'effort-high' };
+  document.querySelectorAll('#effort-low, #effort-medium, #effort-high').forEach(btn => {
+    btn.classList.toggle('active', btn.id === effortMap[currentReasoningEffort]);
+  });
 }
 
 async function loadStyles() {
@@ -700,6 +759,12 @@ accentInput.addEventListener('input',  () => applyAccentColor(accentInput.value)
 accentInput.addEventListener('change', () => applyAccentColor(accentInput.value));
 resetColorBtn.addEventListener('click', () => applyAccentColor(DEFAULT_ACCENT));
 
+document.getElementById('use-bg-toggle').addEventListener('change', function() {
+  currentUseBackground = this.checked;
+  localStorage.setItem('carousel_use_background', currentUseBackground);
+  document.getElementById('bg-picker-wrap').style.display = currentUseBackground ? '' : 'none';
+});
+
 bgUploadBtn.addEventListener('click', () => bgUploadInput.click());
 bgUploadInput.addEventListener('change', async () => {
   const file = bgUploadInput.files[0];
@@ -719,6 +784,34 @@ bgUploadInput.addEventListener('change', async () => {
   bgUploadInput.value = '';
 });
 bgResetBtn.addEventListener('click', () => applyBgFile(null));
+
+// ── Image quality ──────────────────────────────────────────────────────────
+document.getElementById('quality-select').addEventListener('change', function() {
+  currentImageQuality = this.value;
+  localStorage.setItem('carousel_image_quality', currentImageQuality);
+});
+
+// ── Slide dimensions ───────────────────────────────────────────────────────
+document.querySelectorAll('#size-square, #size-portrait, #size-landscape').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('#size-square, #size-portrait, #size-landscape')
+      .forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentImageSize = this.dataset.size;
+    localStorage.setItem('carousel_image_size', currentImageSize);
+  });
+});
+
+// ── Reasoning effort ───────────────────────────────────────────────────────
+const effortBtns = { 'effort-low': 'low', 'effort-medium': 'medium', 'effort-high': 'high' };
+Object.keys(effortBtns).forEach(id => {
+  document.getElementById(id).addEventListener('click', function() {
+    Object.keys(effortBtns).forEach(bid => document.getElementById(bid).classList.remove('active'));
+    this.classList.add('active');
+    currentReasoningEffort = effortBtns[id];
+    localStorage.setItem('carousel_reasoning_effort', currentReasoningEffort);
+  });
+});
 
 // ── Style Options collapse / expand ───────────────────────────────────────
 document.getElementById('style-card-header').addEventListener('click', () => {
@@ -809,12 +902,16 @@ form.addEventListener('submit', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         topics,
-        mode:            currentMode,
-        accent_color:    currentAccentColor,
-        background_file: currentBgFile || null,
-        max_slides:      currentMaxSlides,
-        style:           currentStyle || null,
-        slide_numbers:   currentSlideNumbers,
+        mode:             currentMode,
+        accent_color:     currentAccentColor,
+        background_file:  currentBgFile || null,
+        use_background:   currentUseBackground,
+        max_slides:       currentMaxSlides,
+        style:            currentStyle || null,
+        slide_numbers:    currentSlideNumbers,
+        image_quality:    currentImageQuality,
+        image_size:       currentImageSize,
+        reasoning_effort: currentReasoningEffort,
       })
     });
     const data = await res.json();
@@ -1216,12 +1313,16 @@ def generate():
     if not topics:
         return jsonify(error="Please provide at least one lesson link or topic."), 400
 
-    mode            = body.get("mode", "sequential")
-    accent_color    = (body.get("accent_color") or "#6DFF2F").strip()
-    background_file = body.get("background_file") or None
-    max_slides      = max(1, min(10, int(body.get("max_slides") or 5)))
-    style           = (body.get("style") or ACTIVE_STYLE).strip()
-    slide_numbers   = bool(body.get("slide_numbers", True))
+    mode             = body.get("mode", "sequential")
+    accent_color     = (body.get("accent_color") or "#6DFF2F").strip()
+    background_file  = body.get("background_file") or None
+    use_background   = bool(body.get("use_background", True))
+    max_slides       = max(1, min(10, int(body.get("max_slides") or 5)))
+    style            = (body.get("style") or ACTIVE_STYLE).strip()
+    slide_numbers    = bool(body.get("slide_numbers", True))
+    image_quality    = (body.get("image_quality") or "auto").strip()
+    image_size       = (body.get("image_size") or "1024x1024").strip()
+    reasoning_effort = (body.get("reasoning_effort") or "low").strip()
 
     # Build job records for every topic
     job_specs = []
@@ -1240,7 +1341,8 @@ def generate():
         jobs[job_specs[0]["job_id"]]["status"] = "running"
         threading.Thread(
             target=_run_job,
-            args=(job_specs[0]["job_id"], topics[0], accent_color, background_file, True, max_slides, style, slide_numbers),
+            args=(job_specs[0]["job_id"], topics[0], accent_color, background_file, use_background, True, max_slides, style, slide_numbers),
+            kwargs=dict(image_quality=image_quality, image_size=image_size, reasoning_effort=reasoning_effort),
             daemon=True,
         ).start()
         return jsonify(job_id=job_specs[0]["job_id"])
@@ -1260,13 +1362,15 @@ def generate():
             jobs[spec["job_id"]]["status_label"] = "Planning carousel…"
         threading.Thread(
             target=_run_concurrent_batch,
-            args=(batch_id, job_specs, accent_color, background_file, max_slides, style, slide_numbers),
+            args=(batch_id, job_specs, accent_color, background_file, use_background, max_slides, style, slide_numbers),
+            kwargs=dict(image_quality=image_quality, image_size=image_size, reasoning_effort=reasoning_effort),
             daemon=True,
         ).start()
     else:
         threading.Thread(
             target=_run_sequential_batch,
-            args=(batch_id, job_specs, accent_color, background_file, max_slides, style, slide_numbers),
+            args=(batch_id, job_specs, accent_color, background_file, use_background, max_slides, style, slide_numbers),
+            kwargs=dict(image_quality=image_quality, image_size=image_size, reasoning_effort=reasoning_effort),
             daemon=True,
         ).start()
 
@@ -1277,13 +1381,14 @@ def generate():
     )
 
 
-def _run_sequential_batch(batch_id: str, job_specs: list, accent_color: str, background_file, max_slides: int = 5, style: str = ACTIVE_STYLE, slide_numbers: bool = True):
+def _run_sequential_batch(batch_id: str, job_specs: list, accent_color: str, background_file, use_background: bool = True, max_slides: int = 5, style: str = ACTIVE_STYLE, slide_numbers: bool = True, image_quality: str = "auto", image_size: str = "1024x1024", reasoning_effort: str = "low"):
     """Run each job in order, waiting for one to finish before starting the next."""
     for spec in job_specs:
         jobs[spec["job_id"]]["status"]       = "running"
         jobs[spec["job_id"]]["status_label"] = "Planning carousel…"
-        _run_job(spec["job_id"], spec["topic"], accent_color, background_file,
-                 capture_print=True, max_slides=max_slides, style=style, slide_numbers=slide_numbers)
+        _run_job(spec["job_id"], spec["topic"], accent_color, background_file, use_background,
+                 capture_print=True, max_slides=max_slides, style=style, slide_numbers=slide_numbers,
+                 image_quality=image_quality, image_size=image_size, reasoning_effort=reasoning_effort)
 
     batch = batches[batch_id]
     batch["status"] = (
@@ -1292,12 +1397,13 @@ def _run_sequential_batch(batch_id: str, job_specs: list, accent_color: str, bac
     )
 
 
-def _run_concurrent_batch(batch_id: str, job_specs: list, accent_color: str, background_file, max_slides: int = 5, style: str = ACTIVE_STYLE, slide_numbers: bool = True):
+def _run_concurrent_batch(batch_id: str, job_specs: list, accent_color: str, background_file, use_background: bool = True, max_slides: int = 5, style: str = ACTIVE_STYLE, slide_numbers: bool = True, image_quality: str = "auto", image_size: str = "1024x1024", reasoning_effort: str = "low"):
     """Start all jobs simultaneously in separate threads and wait for all to finish."""
     threads = [
         threading.Thread(
             target=_run_job,
-            args=(spec["job_id"], spec["topic"], accent_color, background_file, False, max_slides, style, slide_numbers),
+            args=(spec["job_id"], spec["topic"], accent_color, background_file, use_background, False, max_slides, style, slide_numbers),
+            kwargs=dict(image_quality=image_quality, image_size=image_size, reasoning_effort=reasoning_effort),
             daemon=True,
         )
         for spec in job_specs
@@ -1345,7 +1451,9 @@ def batch_status(batch_id: str):
 
 
 def _run_job(job_id: str, topic: str, accent_color: str = "#6DFF2F",
-             background_file=None, capture_print: bool = True, max_slides: int = 5, style: str = ACTIVE_STYLE, slide_numbers: bool = True):
+             background_file=None, use_background: bool = True, capture_print: bool = True,
+             max_slides: int = 5, style: str = ACTIVE_STYLE, slide_numbers: bool = True,
+             image_quality: str = "auto", image_size: str = "1024x1024", reasoning_effort: str = "low"):
     job = jobs[job_id]
     def log(msg): job["log"].append(msg)
 
@@ -1371,9 +1479,13 @@ def _run_job(job_id: str, topic: str, accent_color: str = "#6DFF2F",
                             input_as_text=topic,
                             accent_color=accent_color,
                             background_file=background_file,
+                            use_background=use_background,
                             max_slides=max_slides,
                             style=style,
                             slide_numbers=slide_numbers,
+                            image_quality=image_quality,
+                            image_size=image_size,
+                            reasoning_effort=reasoning_effort,
                         ))
                     )
                 finally:
@@ -1386,8 +1498,13 @@ def _run_job(job_id: str, topic: str, accent_color: str = "#6DFF2F",
                         input_as_text=topic,
                         accent_color=accent_color,
                         background_file=background_file,
+                        use_background=use_background,
                         max_slides=max_slides,
                         style=style,
+                        slide_numbers=slide_numbers,
+                        image_quality=image_quality,
+                        image_size=image_size,
+                        reasoning_effort=reasoning_effort,
                     ))
                 )
             finally:

@@ -32,16 +32,9 @@ def list_styles() -> list[str]:
         if d.is_dir() and not d.name.startswith(".")
     )
 
-# Tool definitions
-image_generation = ImageGenerationTool(tool_config={
-  "type": "image_generation",
-  "model": "gpt-image-1",
-  "size": "1024x1024",
-  "quality": "auto",
-  "output_format": "png",
-  "background": "transparent",
-  "moderation": "auto",
-})
+VALID_QUALITIES = {"auto", "low", "medium", "high"}
+VALID_SIZES     = {"auto", "1024x1024", "1024x1536", "1536x1024"}
+VALID_EFFORTS   = {"low", "medium", "high"}
 
 # FIX 1: "image description" had a space — invalid Python identifier; renamed to image_description
 class CarouselPlannerSchema__PostsItem(BaseModel):
@@ -54,12 +47,33 @@ class CarouselPlannerSchema(BaseModel):
   posts: list[CarouselPlannerSchema__PostsItem] = Field(max_length=10)
 
 
+_PLANNER_OPAQUE_OVERRIDE = """
+BACKGROUND MODE OVERRIDE: Background image compositing is disabled for this run. \
+When writing each image_description field, do NOT use phrases like \
+"transparent background", "foreground-only design", or "composited over a dark background". \
+Instead, describe each slide as a complete, self-contained image with a solid background \
+that is appropriate to the visual style. The image model will render fully opaque images.
+"""
+
+_DRAWING_OPAQUE_OVERRIDE = """CRITICAL OVERRIDE — SOLID BACKGROUND MODE: \
+Do NOT generate a transparent background. Do NOT generate alpha-channel transparency \
+or any see-through areas. This image must be fully opaque with a solid background \
+that fills the entire 1024×1024 canvas. The background compositing step is disabled — \
+the generated image is the final result. Ignore any instruction below that says \
+"transparent background", "foreground-only", or "do not draw a solid background". \
+Instead, draw a complete, self-contained image with a solid background appropriate \
+to the visual style.
+
+"""
+
+
 class CarouselPlannerContext:
-  def __init__(self, state_lesson_link: str, accent_color: str = "#6DFF2F", max_slides: int = 5, style: str = ACTIVE_STYLE):
+  def __init__(self, state_lesson_link: str, accent_color: str = "#6DFF2F", max_slides: int = 5, style: str = ACTIVE_STYLE, use_background: bool = True):
     self.state_lesson_link = state_lesson_link
     self.accent_color = accent_color
     self.max_slides = max_slides
     self.style = style
+    self.use_background = use_background
 
 def carousel_planner_instructions(run_context: RunContextWrapper[CarouselPlannerContext], _agent: Agent[CarouselPlannerContext]):
   ctx = run_context.context
@@ -67,32 +81,35 @@ def carousel_planner_instructions(run_context: RunContextWrapper[CarouselPlanner
   raw = _load_style_file("carousel_planner_instructions.txt", ctx.style)
   raw = raw.replace("__LESSON_LINK__", ctx.state_lesson_link)
   raw = raw.replace("__MAX_SLIDES__", str(ctx.max_slides))
-  return raw.replace("#6DFF2F", ctx.accent_color)
+  raw = raw.replace("#6DFF2F", ctx.accent_color)
+  if not ctx.use_background:
+    raw += _PLANNER_OPAQUE_OVERRIDE
+  return raw
 
-carousel_planner = Agent(
-  name="Carousel Planner",
-  instructions=carousel_planner_instructions,
-  model="gpt-5.5",
-  output_type=CarouselPlannerSchema,
-  model_settings=ModelSettings(
-    store=True,
-    reasoning=Reasoning(
-      effort="low",
-      summary="auto"
+def _make_carousel_planner(reasoning_effort: str = "low") -> Agent:
+  """Create a Carousel Planner agent with the given reasoning effort."""
+  return Agent(
+    name="Carousel Planner",
+    instructions=carousel_planner_instructions,
+    model="gpt-5.5",
+    output_type=CarouselPlannerSchema,
+    model_settings=ModelSettings(
+      store=True,
+      reasoning=Reasoning(effort=reasoning_effort, summary="auto")
     )
   )
-)
 
 
 # FIX 3 & 4: DrawingAgentContext now carries the actual slide data, not just a number
 class DrawingAgentContext:
-  def __init__(self, state_current_post: int, post_title: str, post_description: str, post_image_description: str, accent_color: str = "#6DFF2F", style: str = ACTIVE_STYLE):
+  def __init__(self, state_current_post: int, post_title: str, post_description: str, post_image_description: str, accent_color: str = "#6DFF2F", style: str = ACTIVE_STYLE, use_background: bool = True):
     self.state_current_post = state_current_post
     self.post_title = post_title
     self.post_description = post_description
     self.post_image_description = post_image_description
     self.accent_color = accent_color
     self.style = style
+    self.use_background = use_background
 
 def drawing_agent_instructions(run_context: RunContextWrapper[DrawingAgentContext], _agent: Agent[DrawingAgentContext]):
   ctx = run_context.context
@@ -102,32 +119,53 @@ def drawing_agent_instructions(run_context: RunContextWrapper[DrawingAgentContex
   raw = raw.replace("__POST_TITLE__", ctx.post_title)
   raw = raw.replace("__POST_DESCRIPTION__", ctx.post_description)
   raw = raw.replace("__POST_IMAGE_DESCRIPTION__", ctx.post_image_description)
-  return raw.replace("#6DFF2F", ctx.accent_color)
+  raw = raw.replace("#6DFF2F", ctx.accent_color)
+  if not ctx.use_background:
+    raw = _DRAWING_OPAQUE_OVERRIDE + raw
+  return raw
 
-drawing_agent = Agent(
-  name="Drawing Agent",
-  instructions=drawing_agent_instructions,
-  model="gpt-5.5",
-  tools=[
-    image_generation
-  ],
-  model_settings=ModelSettings(
-    store=True,
-    reasoning=Reasoning(
-      effort="low",
-      summary="auto"
+def _make_drawing_agent(
+  use_background: bool = True,
+  quality: str = "auto",
+  size: str = "1024x1024",
+  reasoning_effort: str = "low",
+) -> Agent:
+  """Create a Drawing Agent with the given image-generation settings."""
+  tool = ImageGenerationTool(tool_config={
+    "type": "image_generation",
+    "model": "gpt-image-1",
+    "size": size if size in VALID_SIZES else "1024x1024",
+    "quality": quality if quality in VALID_QUALITIES else "auto",
+    "output_format": "png",
+    "background": "transparent" if use_background else "opaque",
+    "moderation": "auto",
+  })
+  return Agent(
+    name="Drawing Agent",
+    instructions=drawing_agent_instructions,
+    model="gpt-5.5",
+    tools=[tool],
+    model_settings=ModelSettings(
+      store=True,
+      reasoning=Reasoning(
+        effort=reasoning_effort if reasoning_effort in VALID_EFFORTS else "low",
+        summary="auto"
+      )
     )
   )
-)
 
 
 class WorkflowInput(BaseModel):
   input_as_text: str
   accent_color: str = "#6DFF2F"
   background_file: str | None = None
+  use_background: bool = True
   max_slides: int = 5
   style: str = ACTIVE_STYLE
   slide_numbers: bool = True
+  image_quality: str = "auto"      # auto | low | medium | high
+  image_size: str = "1024x1024"    # 1024x1024 | 1024x1792 | 1792x1024
+  reasoning_effort: str = "low"    # low | medium | high
 
 
 BASE_DIR = Path(__file__).parent
@@ -194,6 +232,15 @@ async def run_workflow(workflow_input: WorkflowInput):
         ]
       }
     ]
+    # Build per-run agents with the requested quality/size/effort settings
+    carousel_planner = _make_carousel_planner(workflow_input.reasoning_effort)
+    active_drawing_agent = _make_drawing_agent(
+      use_background=workflow_input.use_background,
+      quality=workflow_input.image_quality,
+      size=workflow_input.image_size,
+      reasoning_effort=workflow_input.reasoning_effort,
+    )
+
     # FIX 5: state["lesson_link"] was None; pass the actual user input as the lesson link
     carousel_planner_result_temp = await Runner.run(
       carousel_planner,
@@ -209,6 +256,7 @@ async def run_workflow(workflow_input: WorkflowInput):
           accent_color=workflow_input.accent_color,
           max_slides=workflow_input.max_slides,
           style=workflow_input.style,
+          use_background=workflow_input.use_background,
       )
     )
     carousel_planner_result = {
@@ -224,7 +272,7 @@ async def run_workflow(workflow_input: WorkflowInput):
     while state["current_post"] < state["amount_of_posts"]:
       state["post"] = state["posts"][state["current_post"]]
       drawing_agent_result_temp = await Runner.run(
-        drawing_agent,
+        active_drawing_agent,
         input=[
           *conversation_history
         ],
@@ -239,6 +287,7 @@ async def run_workflow(workflow_input: WorkflowInput):
           post_image_description=state["post"]["image_description"],
           accent_color=workflow_input.accent_color,
           style=workflow_input.style,
+          use_background=workflow_input.use_background,
         )
       )
       save_image_from_result(drawing_agent_result_temp, state["current_post"], run_folder)
@@ -256,12 +305,15 @@ async def run_workflow(workflow_input: WorkflowInput):
     else:
         bg_path = None  # apply_background.py will use its built-in default
 
-    # Composite background onto all generated slides
-    print("\nApplying background...")
-    bg_cmd = [sys.executable, str(BASE_DIR / "apply_background.py"), str(run_folder)]
-    if bg_path:
-        bg_cmd.append(str(bg_path))
-    subprocess.run(bg_cmd, check=True)
+    # Composite background onto all generated slides (skipped when disabled)
+    if workflow_input.use_background:
+        print("\nApplying background...")
+        bg_cmd = [sys.executable, str(BASE_DIR / "apply_background.py"), str(run_folder)]
+        if bg_path:
+            bg_cmd.append(str(bg_path))
+        subprocess.run(bg_cmd, check=True)
+    else:
+        print("\nBackground disabled — skipping.")
 
     # Stamp slide numbers onto composited images (optional)
     if workflow_input.slide_numbers:
