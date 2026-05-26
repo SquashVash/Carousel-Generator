@@ -222,3 +222,6 @@ __marimo__/
 
 # Output files
 output/
+
+# Private assets
+assets/CTA.png
