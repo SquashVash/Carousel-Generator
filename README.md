@@ -92,20 +92,6 @@ python run.py "What is RSI and how to use it in trading"
 python run.py https://example.com/lesson/rsi
 ```
 
----
-
-## 🖥️ Web UI Guide
-
-| Area | What it does |
-|---|---|
-| **Topic textarea** | One topic per line. One line → single carousel; multiple lines → batch |
-| **Processing mode** | *One by one* or *All at once* (only shown for batch) |
-| **Style Options** | Change the carousel style, accent color, and background image |
-| **Slide Options** | Set max slides (1–10) and toggle slide numbers |
-| **Previous Runs** | Browse and preview every generated carousel; click any slide to zoom |
-
----
-
 ## 🎨 Adding a New Style
 
 1. Create a new subfolder under `styles/`:
